@@ -1,7 +1,7 @@
 import base64
 from openai import OpenAI
 import streamlit as st
-import openai
+import requests
 import sounddevice as sd
 import numpy as np
 import queue
@@ -19,7 +19,12 @@ audio_queue = queue.Queue()
 def audio_callback(indata, frames, time, status):
     audio_queue.put(indata.copy())
 
-# Function to process audio and get AI response
+# Fetch the audio file and convert it to a base64 encoded string
+url = "https://openaiassets.blob.core.windows.net/$web/API/docs/audio/alloy.wav"
+response = requests.get(url)
+response.raise_for_status()
+wav_data = response.content
+encoded_string = base64.b64encode(wav_data).decode('utf-8')
 def get_ai_response():
     # Collect audio data from the queue
     audio_data = []
@@ -32,12 +37,24 @@ def get_ai_response():
 
         # Call OpenAI API with the audio data
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-audio-preview",
+            modalities=["text", "audio"],
+            audio={"voice": "alloy", "format": "wav"},
             messages=[
-                {
-                    "role": "user",
-                    "content": "Is a golden retriever a good family dog?"
-                }
+                "role": "user",
+                "content": [
+                    { 
+                        "type": "text",
+                        "text": "What is in this recording?"
+                    },
+                    {
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": encoded_string,
+                            "format": "wav"
+                        }
+                    }
+                ]
             ]
         )
 
