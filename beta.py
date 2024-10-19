@@ -16,6 +16,10 @@ st.title("GPT-4o Realtime Speech-to-Text & Text-to-Speech Interaction")
 status = st.empty()  # Placeholder for status updates
 log_area = st.empty()  # Placeholder to show response logs
 
+# Initialize conversation history
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+
 def log_and_display(message):
     """Log messages in Streamlit and the console."""
     log_area.write(message)
@@ -66,9 +70,14 @@ async def connect_to_openai(input_text=None):
             await ws.send(json.dumps(session_event))
             log_and_display("Session initialized.")
 
-            # Send user input
+            # Populate conversation history
+            for item in st.session_state.conversation_history:
+                await ws.send(json.dumps(item))
+                log_and_display(f"Restored conversation item: {item}")
+
+            # Send new user input if available
             if input_text:
-                message = {
+                user_message = {
                     "type": "conversation.item.create",
                     "item": {
                         "type": "message",
@@ -76,7 +85,8 @@ async def connect_to_openai(input_text=None):
                         "content": [{"type": "input_text", "text": input_text}],
                     },
                 }
-                await ws.send(json.dumps(message))
+                await ws.send(json.dumps(user_message))
+                st.session_state.conversation_history.append(user_message)  # Save to history
                 log_and_display(f"Sent text input: {input_text}")
 
             # Request AI response
@@ -99,13 +109,34 @@ async def connect_to_openai(input_text=None):
                 res = json.loads(response)
                 log_and_display(f"Received response: {res}")
 
+                # Initialize delta to avoid undefined variable errors
+                delta = ""
+
                 if res.get("type") == "response.text.delta":
                     delta = res.get("delta", "")
-                    st.write(delta)  # Display partial text
+                    if delta:
+                        st.write(delta)  # Display partial text
+
+                        # Save assistant response to conversation history
+                        assistant_message = {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "text", "text": delta}],
+                            },
+                        }
+                        st.session_state.conversation_history.append(assistant_message)
 
                 elif res.get("type") == "response.audio.delta":
                     audio_chunk = base64.b64decode(res["delta"])
                     audio_buffer.extend(audio_chunk)  # Accumulate chunks
+
+                elif res.get("type") in {"response.audio.done", "response.audio_transcript.done"}:
+                    # Handle transcript when available
+                    transcript = res.get("transcript", "")
+                    if transcript:
+                        st.write(transcript)
 
                 elif res.get("type") == "response.done":
                     log_and_display("Response completed.")
@@ -129,6 +160,7 @@ async def connect_to_openai(input_text=None):
     except Exception as e:
         st.error(f"An error occurred: {e}")
         log_and_display(f"An error occurred: {e}")
+
 
 # Streamlit UI to Start Conversation
 conversation_active = st.checkbox("Activate Conversation")
