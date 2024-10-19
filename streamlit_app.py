@@ -40,7 +40,7 @@ def get_ai_response():
             model="gpt-4o-audio-preview",
             modalities=["text", "audio"],
             audio={"voice": "alloy", "format": "wav"},
-            messages=[
+            messages=[{
                 "role": "user",
                 "content": [
                     { 
