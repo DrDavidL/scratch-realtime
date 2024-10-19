@@ -5,7 +5,7 @@ import numpy as np
 import queue
 
 # Set your OpenAI API key
-openai.api_key = 'your-api-key-here'
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Initialize a queue to store audio data
 audio_queue = queue.Queue()
@@ -39,10 +39,13 @@ def get_ai_response():
 # Streamlit app layout
 st.title("Real-time Voice Discussion with OpenAI")
 
-if st.button("Start Recording"):
+recording = st.checkbox("Start/Stop Recording")
+
+if recording:
     # Start audio stream
     with sd.InputStream(callback=audio_callback):
         st.write("Recording...")
+        sd.sleep(5000)  # Record for 5 seconds
 
     # Get AI response
     response_text = get_ai_response()
