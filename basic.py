@@ -119,9 +119,9 @@ async def connect_to_openai(input_text=None):
                 log_and_display("Writing audio to WAV...")
                 wav_file = write_audio_to_wav(audio_buffer)
 
-                # Play the final WAV audio in Streamlit
+                # Play the final WAV audio in Streamlit with autoplay enabled
                 with open(wav_file, "rb") as f:
-                    st.audio(f.read(), format="audio/wav")
+                    st.audio(f.read(), format="audio/wav", autoplay=True)
 
     except websockets.exceptions.ConnectionClosedError as e:
         st.error(f"Connection closed unexpectedly: {e}")

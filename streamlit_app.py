@@ -1,78 +1,140 @@
-import base64
-import openai
-from openai import OpenAI
 import streamlit as st
-import pyttsx3
-import requests
-import sounddevice as sd
-import numpy as np
-import queue
+import os
+import json
+import asyncio
+import websockets
+import base64
+import wave
+import tempfile
 
-# Set your OpenAI API key
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# API Configuration from Streamlit Secrets
+API_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+API_KEY = st.secrets["OPENAI_API_KEY"]  # Securely retrieve API key
 
-# Initialize OpenAI client
-client = OpenAI()
+# Streamlit UI Setup
+st.title("GPT-4o Realtime Speech-to-Text & Text-to-Speech Interaction")
+status = st.empty()  # Placeholder for status updates
+log_area = st.empty()  # Placeholder to show response logs
 
-# Initialize a queue to store audio data
-audio_queue = queue.Queue()
+def log_and_display(message):
+    """Log messages in Streamlit and the console."""
+    log_area.write(message)
+    print(message)
 
-# Function to capture audio
-def audio_callback(indata, frames, time, status):
-    audio_queue.put(indata.copy())
+def write_audio_to_wav(audio_buffer):
+    """Write the buffered audio chunks into a proper WAV file."""
+    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
 
-# Fetch the audio file and convert it to a base64 encoded string
-url = "https://openaiassets.blob.core.windows.net/$web/API/docs/audio/alloy.wav"
-response = requests.get(url)
-response.raise_for_status()
-wav_data = response.content
-encoded_string = base64.b64encode(wav_data).decode('utf-8')
-def get_ai_response():
-    # Collect audio data from the queue
-    audio_data = []
-    while not audio_queue.empty():
-        audio_data.append(audio_queue.get())
+    # Create a new WAV file and set the proper parameters
+    with wave.open(temp_audio.name, 'wb') as wf:
+        wf.setnchannels(1)  # Mono audio
+        wf.setsampwidth(2)  # 16-bit audio
+        wf.setframerate(19000)  # Match the sample rate
+        wf.writeframes(audio_buffer)  # Write the audio data
 
-    if audio_data:
-        # Convert audio data to a format suitable for OpenAI API
-        audio_data = np.concatenate(audio_data, axis=0)
+    return temp_audio.name
 
-        # Call OpenAI API with the audio data
-        completion = client.chat.completions.create(
-            model="gpt-4o-audio-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": "What is in this recording?"
+async def connect_to_openai(input_text=None):
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "OpenAI-Beta": "realtime=v1",
+    }
+
+    try:
+        status.text("Connecting to OpenAI Realtime API...")
+        async with websockets.connect(API_URL, extra_headers=headers) as ws:
+            log_and_display("Connected to OpenAI Realtime API.")
+
+            # Initialize the session
+            session_event = {
+                "type": "session.update",
+                "session": {
+                    "modalities": ["audio", "text"],
+                    "instructions": "You are a helpful assistant called Aris.",
+                    "voice": "alloy",
+                    "input_audio_format": "pcm16",
+                    "output_audio_format": "pcm16",
+                    "input_audio_transcription": {"model": "whisper-1"},
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "threshold": 0.1,
+                        "prefix_padding_ms": 10,
+                        "silence_duration_ms": 999,
+                    },
+                },
+            }
+            await ws.send(json.dumps(session_event))
+            log_and_display("Session initialized.")
+
+            # Send user input
+            if input_text:
+                message = {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": input_text}],
+                    },
                 }
-            ]
-        )
+                await ws.send(json.dumps(message))
+                log_and_display(f"Sent text input: {input_text}")
 
-        # Decode and save the audio response
-        wav_bytes = base64.b64decode(completion.choices[0].message.audio.data)
-        with open("response.wav", "wb") as f:
-            f.write(wav_bytes)
+            # Request AI response
+            response_request = {
+                "type": "response.create",
+                "response": {
+                    "modalities": ["text", "audio"],
+                    "voice": "alloy",
+                    "output_audio_format": "pcm16",
+                },
+            }
+            await ws.send(json.dumps(response_request))
+            log_and_display("Requested AI response.")
 
-        # Convert text response to speech
-        engine = pyttsx3.init()
-        engine.say(completion.choices[0].message.content)
-        engine.runAndWait()
+            # Buffer to accumulate audio chunks
+            audio_buffer = bytearray()
 
-        return completion.choices[0].message.content
-    else:
-        return "No audio data captured. Please try recording again."
+            # Process responses from WebSocket
+            async for response in ws:
+                res = json.loads(response)
+                log_and_display(f"Received response: {res}")
 
-# Streamlit app layout
-st.title("Real-time Voice Discussion with OpenAI")
+                if res.get("type") == "response.text.delta":
+                    delta = res.get("delta", "")
+                    st.write(delta)  # Display partial text
 
-recording = st.checkbox("Start/Stop Recording")
+                elif res.get("type") == "response.audio.delta":
+                    audio_chunk = base64.b64decode(res["delta"])
+                    audio_buffer.extend(audio_chunk)  # Accumulate chunks
 
-if recording:
-    # Start audio stream
-    with sd.InputStream(callback=audio_callback):
-        st.write("Recording...")
-        sd.sleep(5000)  # Record for 5 seconds
+                elif res.get("type") == "response.done":
+                    log_and_display("Response completed.")
+                    break
 
-    # Get AI response
-    response_text = get_ai_response()
-    st.write("AI Response:", response_text)
+                else:
+                    log_and_display(f"Unexpected event: {res}")
+
+            # Write the accumulated audio to a WAV file
+            if audio_buffer:
+                log_and_display("Writing audio to WAV...")
+                wav_file = write_audio_to_wav(audio_buffer)
+
+                # Play the final WAV audio in Streamlit with autoplay enabled
+                with open(wav_file, "rb") as f:
+                    st.audio(f.read(), format="audio/wav", autoplay=True)
+
+    except websockets.exceptions.ConnectionClosedError as e:
+        st.error(f"Connection closed unexpectedly: {e}")
+        log_and_display(f"Connection closed: {e}")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        log_and_display(f"An error occurred: {e}")
+
+# Streamlit UI to Start Conversation
+conversation_active = st.checkbox("Activate Conversation")
+
+if conversation_active:
+    user_text = st.text_input("Enter text input:")
+
+    if user_text:
+        asyncio.run(connect_to_openai(input_text=user_text))
