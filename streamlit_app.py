@@ -21,17 +21,20 @@ def get_ai_response():
     while not audio_queue.empty():
         audio_data.append(audio_queue.get())
 
-    # Convert audio data to a format suitable for OpenAI API
-    audio_data = np.concatenate(audio_data, axis=0)
+    if audio_data:
+        # Convert audio data to a format suitable for OpenAI API
+        audio_data = np.concatenate(audio_data, axis=0)
 
-    # Call OpenAI API with the audio data
-    response = openai.Audio.create(
-        model="whisper-1",
-        audio=audio_data,
-        response_format="text"
-    )
+        # Call OpenAI API with the audio data
+        response = openai.Audio.create(
+            model="whisper-1",
+            audio=audio_data,
+            response_format="text"
+        )
 
-    return response['text']
+        return response['text']
+    else:
+        return "No audio data captured. Please try recording again."
 
 # Streamlit app layout
 st.title("Real-time Voice Discussion with OpenAI")
