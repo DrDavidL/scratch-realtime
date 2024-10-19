@@ -39,21 +39,11 @@ def get_ai_response():
         # Call OpenAI API with the audio data
         completion = client.chat.completions.create(
             model="gpt-4o-audio-preview",
-            messages=[{
-                "role": "user",
-                "content": [
-                    { 
-                        "type": "text",
-                        "text": "What is in this recording?"
-                    },
-                    {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": encoded_string,
-                            "format": "wav"
-                        }
-                    }
-                ]}
+            messages=[
+                {
+                    "role": "user",
+                    "content": "What is in this recording?"
+                }
             ]
         )
 
