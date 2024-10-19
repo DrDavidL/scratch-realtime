@@ -1,3 +1,5 @@
+import base64
+from openai import OpenAI
 import streamlit as st
 import openai
 import sounddevice as sd
@@ -6,6 +8,9 @@ import queue
 
 # Set your OpenAI API key
 openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+# Initialize OpenAI client
+client = OpenAI()
 
 # Initialize a queue to store audio data
 audio_queue = queue.Queue()
@@ -26,13 +31,24 @@ def get_ai_response():
         audio_data = np.concatenate(audio_data, axis=0)
 
         # Call OpenAI API with the audio data
-        response = openai.Audio.transcribe(
-            model="whisper-1",
-            file=audio_data,
-            response_format="text"
+        completion = client.chat.completions.create(
+            model="gpt-4o-audio-preview",
+            modalities=["text", "audio"],
+            audio={"voice": "alloy", "format": "wav"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Is a golden retriever a good family dog?"
+                }
+            ]
         )
 
-        return response['text']
+        # Decode and save the audio response
+        wav_bytes = base64.b64decode(completion.choices[0].message.audio.data)
+        with open("response.wav", "wb") as f:
+            f.write(wav_bytes)
+
+        return completion.choices[0].message.content
     else:
         return "No audio data captured. Please try recording again."
 
