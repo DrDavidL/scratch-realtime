@@ -54,7 +54,7 @@ def get_ai_response():
                             "format": "wav"
                         }
                     }
-                ]
+                ]}
             ]
         )
 
