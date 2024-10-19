@@ -26,9 +26,9 @@ def get_ai_response():
         audio_data = np.concatenate(audio_data, axis=0)
 
         # Call OpenAI API with the audio data
-        response = openai.Audio.create(
+        response = openai.Audio.transcribe(
             model="whisper-1",
-            audio=audio_data,
+            file=audio_data,
             response_format="text"
         )
 
