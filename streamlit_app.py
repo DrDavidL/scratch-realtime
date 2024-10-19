@@ -2,6 +2,7 @@ import base64
 import openai
 from openai import OpenAI
 import streamlit as st
+import pyttsx3
 import requests
 import sounddevice as sd
 import numpy as np
@@ -51,6 +52,11 @@ def get_ai_response():
         wav_bytes = base64.b64decode(completion.choices[0].message.audio.data)
         with open("response.wav", "wb") as f:
             f.write(wav_bytes)
+
+        # Convert text response to speech
+        engine = pyttsx3.init()
+        engine.say(completion.choices[0].message.content)
+        engine.runAndWait()
 
         return completion.choices[0].message.content
     else:
